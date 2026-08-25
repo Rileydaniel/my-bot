@@ -2804,7 +2804,7 @@ def youtube_search(query: str):
         "webpage_url": data.get("webpage_url") or data.get("original_url") or "",
     }
 
-async def _play_next(guild_id):
+await _play_next(guild_id)
     vc = discord.utils.get(client.voice_clients, guild__id=guild_id)
     if not vc or not vc.is_connected():
         return
