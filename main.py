@@ -2782,7 +2782,7 @@ def youtube_search(query: str):
         "remote_components": ["ejs:github"],
         "extractor_args": {
             "youtube": {
-                "player_client": ["web", "android"]
+                "player_client": ["web"]
             }
         }
     }
