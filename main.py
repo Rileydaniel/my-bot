@@ -516,14 +516,20 @@ class aclient(discord.Client):
                                 pass
 
                     if vc.is_playing():
-                        vc.stop()
+                        print("⚠️ TTS already playing, skipping announcement", flush=True)
+                        return
+
+                    print("▶️ Playing TTS audio", flush=True)
+
+                    audio = discord.FFmpegPCMAudio(
+                        filename,
+                        executable="ffmpeg",
+                        before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                        options="-vn"
+                    )
 
                     vc.play(
-                        discord.FFmpegPCMAudio(
-                            filename,
-                            executable="ffmpeg",
-                            options="-vn"
-                        ),
+                        audio,
                         after=finished
                     )
                 except Exception as e:
