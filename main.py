@@ -23,9 +23,6 @@ from typing import Optional
 import asyncio as py_asyncio
 import time
 
-TTS_VOICE = "en-US-GuyNeural"
-TTS_LOCK = py_asyncio.Lock()
-
 temp_dir = tempfile.mkdtemp()
 
 BOT_START_TIME = time.time()
@@ -486,7 +483,6 @@ class aclient(discord.Client):
         after: discord.VoiceState
     ):
         print(f"🔊 VOICE EVENT: {member.display_name} | {before.channel} -> {after.channel}", flush=True)
-        print("🔊 TTS listener active", flush=True)
 
         # Announce users joining/leaving/moving voice channels
         if self.user is not None and member.id != self.user.id:
@@ -497,44 +493,39 @@ class aclient(discord.Client):
 
             async def speak_announcement(message):
                 if not vc or not vc.is_connected():
-                    print("❌ NO VOICE CLIENT FOUND", flush=True)
                     return
-
-                print(f"🗣️ TTS TRY: {message}", flush=True)
 
                 filename = "voice_announcement.mp3"
 
                 try:
                     tts = edge_tts.Communicate(
                         message,
-                        TTS_VOICE
+                        "en-US-GuyNeural"
                     )
                     await tts.save(filename)
-                    print("✅ TTS audio created", flush=True)
 
-                    async with TTS_LOCK:
-                        if vc.is_playing():
-                            print("⚠️ Waiting for current audio to stop", flush=True)
-                            vc.stop()
-                            await py_asyncio.sleep(0.5)
-
-                        print("▶️ Playing TTS audio", flush=True)
-
-                        finished = py_asyncio.Event()
-
-                        def after_play(error):
-                            if error:
-                                print(f"❌ FFmpeg playback error: {error}", flush=True)
-                            if os.path.exists(filename):
+                    def finished(error):
+                        if error:
+                            print(f"❌ FFmpeg TTS error: {error}")
+                        else:
+                            print("✅ TTS finished")
+                        if os.path.exists(filename):
+                            try:
                                 os.remove(filename)
-                            client.loop.call_soon_threadsafe(finished.set)
+                            except Exception:
+                                pass
 
-                        vc.play(
-                            discord.FFmpegPCMAudio(filename),
-                            after=after_play
-                        )
+                    if vc.is_playing():
+                        vc.stop()
 
-                        await finished.wait()
+                    vc.play(
+                        discord.FFmpegPCMAudio(
+                            filename,
+                            executable="ffmpeg",
+                            options="-vn"
+                        ),
+                        after=finished
+                    )
                 except Exception as e:
                     print(f"❌ TTS error: {e}")
 
