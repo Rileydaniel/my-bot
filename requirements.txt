@@ -1,7 +1,6 @@
 discord.py[voice]
 yt-dlp
 python-dotenv
+PyNaCl
 aiohttp
 flask
-opuslib
-
