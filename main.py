@@ -669,6 +669,11 @@ async def voice_watchdog():
         ):
             continue
 
+        # Avoid watchdog reconnects while the voice connection is still alive.
+        # Reconnecting here can interrupt FFmpeg and leave silent playback.
+        if active_voice is not None and active_voice.is_connected():
+            continue
+
         print(
             "⚠️ Voice watchdog detected the bot is not in the "
             f"configured channel ({channel.name})."
