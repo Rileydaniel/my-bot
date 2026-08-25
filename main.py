@@ -2775,17 +2775,22 @@ async def _youtube_search(query: str):
 
 def youtube_search(query: str):
     opts = {
-        "format": "bestaudio/best",
-        "quiet": True,
-        "noplaylist": True,
-        "cookiefile": "cookies.txt",
-        "remote_components": ["ejs:github"],
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web"]
-            }
+    "format": "bestaudio/best",
+    "quiet": True,
+    "noplaylist": True,
+    "cookiefile": "cookies.txt",
+
+    "skip_download": True,
+    "check_formats": False,
+
+    "remote_components": ["ejs:github"],
+
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["web"]
         }
     }
+}
     with yt_dlp.YoutubeDL(opts) as ydl:
         data = ydl.extract_info(f"ytsearch1:{query}", download=False)
 
