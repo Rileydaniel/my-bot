@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     libopus-dev \
     nodejs \
     npm \
+    && npm install -g @distube/ytdl-core \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
