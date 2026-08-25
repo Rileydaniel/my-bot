@@ -2795,7 +2795,7 @@ def youtube_search(query: str):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(query, download=False)
+        info = ydl.extract_info(f"ytsearch:{query}", download=False)
 
     if "entries" in info:
         info = info["entries"][0]
