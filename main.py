@@ -3289,7 +3289,9 @@ async def stop(interaction: discord.Interaction):
 
 # ----------------- Start Bot -----------------
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+
+    import time
 
     flask_thread = threading.Thread(
         target=run_flask_server,
@@ -3297,4 +3299,13 @@ if __name__ == '__main__':
     )
 
     flask_thread.start()
-    client.run(os.getenv("DISCORD_TOKEN"))
+
+    print("Waiting before Discord login...")
+    time.sleep(10)
+
+    token = os.getenv("DISCORD_TOKEN")
+
+    if not token:
+        print("ERROR: DISCORD_TOKEN missing")
+    else:
+        client.run(token)
