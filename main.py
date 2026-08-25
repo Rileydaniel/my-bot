@@ -1,4 +1,4 @@
-print("🚀 MAIN.PY STARTED", flush=True)
+rint("🚀 MAIN.PY STARTED", flush=True)
 import discord
 try:
     import discord.ext.voice_recv as voice_recv
@@ -606,14 +606,10 @@ async def reconnect_voice_channel():
                     await py_asyncio.sleep(1.5)
 
             try:
-                voice_client = await channel.connect(
-                    reconnect=False,
-                    timeout=30
-                )
-
-                # Wait a moment for the voice connection to stabilize before returning
-                await py_asyncio.sleep(1)
-
+        voice_client = await channel.connect(reconnect=False, timeout=30)
+        
+        # Wait a moment for the voice connection to stabilize before returning
+        await py_asyncio.sleep(1)
                 print(
                     f"🔊 Reconnected to {channel.name} "
                     f"(attempt {attempt})."
@@ -653,21 +649,17 @@ async def voice_watchdog():
             and current.channel is not None
             and current.channel.id == channel.id
         )
-if in_target:
-    continue
 
-# Ignore while connecting/reconnecting
-if current and current.is_connected():
-    if current.channel is None:
-        continue
+        if in_target:
+            continue
 
-print(
-    f"⚠️ Voice watchdog detected the bot is not in "
-    f"{channel.name}"
-)
-if (
-    client._voice_reconnect_task is None
-         or client._voice_reconnect_task.done()
+        print(
+            "⚠️ Voice watchdog detected the bot is not in the "
+            f"configured channel ({channel.name})."
+        )
+        if (
+            client._voice_reconnect_task is None
+            or client._voice_reconnect_task.done()
         ):
             client._voice_reconnect_task = py_asyncio.create_task(
                 reconnect_voice_channel()
@@ -2788,6 +2780,13 @@ def youtube_search(query: str):
         "format": "bestaudio/best",
         "quiet": True,
         "noplaylist": True,
+        "extract_flat": False,
+        "nocheckcertificate": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"]
+            }
+        }
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         data = ydl.extract_info(f"ytsearch1:{query}", download=False)
@@ -2908,7 +2907,7 @@ async def play(
                 ephemeral=True
             )
         else:
-            await _start_next_song(guild_id)
+            await _play_next(guild_id)
             await interaction.followup.send(
                 f"▶️ Playing **{result['title']}** at **{selected_volume}% volume**",
                 ephemeral=True
