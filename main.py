@@ -513,13 +513,9 @@ class aclient(discord.Client):
                 'Returning to configured channel...'
             )
 
-        if (
-            self._voice_reconnect_task is None
-            or self._voice_reconnect_task.done()
-        ):
-            self._voice_reconnect_task = py_asyncio.create_task(
-                reconnect_voice_channel()
-            )
+        # Automatic voice reconnect disabled.
+        # Music playback should own the voice connection.
+        return
 
 
 client = aclient()
@@ -633,10 +629,10 @@ async def connect_to_voice():
                     f"⚠️ Failed to move bot to VC; "
                     f"starting a fresh connection: {e}"
                 )
-        else:
+        if voice_client:
             try:
-                if voice_client and voice_client.is_connected():
-                    await voice_client.disconnect(force=True)
+                await voice_client.disconnect(force=True)
+                await py_asyncio.sleep(1)
             except Exception:
                 pass
 
@@ -2945,7 +2941,7 @@ async def play(
         voice_client = interaction.guild.voice_client
 
         if voice_client is None:
-            voice_client = await target_channel.connect()
+            voice_client = await target_channel.connect(timeout=30, reconnect=False)
         elif voice_client.channel.id != target_channel.id:
             await voice_client.move_to(target_channel)
 
