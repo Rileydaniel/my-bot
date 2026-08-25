@@ -605,7 +605,7 @@ async def reconnect_voice_channel():
                         pass
                     await py_asyncio.sleep(1.5)
 
-                try:
+            try:
                 voice_client = await channel.connect(
                     reconnect=False,
                     timeout=30
@@ -619,7 +619,6 @@ async def reconnect_voice_channel():
                     f"(attempt {attempt})."
                 )
                 return
-
             except Exception as e:
                 print(
                     f"⚠️ Voice reconnect attempt {attempt}/"
