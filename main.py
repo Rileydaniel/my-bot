@@ -495,7 +495,7 @@ class aclient(discord.Client):
                 if not vc or not vc.is_connected():
                     return
 
-                filename = "voice_announcement.mp3"
+                filename = tempfile.mktemp(suffix=".mp3")
 
                 try:
                     tts = edge_tts.Communicate(
