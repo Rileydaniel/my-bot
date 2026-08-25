@@ -601,7 +601,7 @@ async def reconnect_voice_channel():
                 if voice_client.guild.id == channel.guild.id:
                     try:
                         if voice_client and voice_client.is_connected():
-                        await voice_client.disconnect(force=True)
+                            await voice_client.disconnect(force=True)
                     except Exception:
                         pass
                     await py_asyncio.sleep(1.5)
@@ -749,7 +749,7 @@ async def connect_to_voice():
         else:
             try:
                 if voice_client and voice_client.is_connected():
-                        await voice_client.disconnect(force=True)
+                    await voice_client.disconnect(force=True)
             except Exception:
                 pass
 
