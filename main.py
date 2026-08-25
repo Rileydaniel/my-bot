@@ -598,7 +598,7 @@ async def reconnect_voice_channel():
             # A forced disconnect can leave a non-connected VoiceClient in
             # the cache. Remove it before creating a fresh handshake.
             for voice_client in list(client.voice_clients):
-                if voice_client.guild.id == channel.guild.id:
+         if voice_client.guild.id == channel.guild.id:
         try:
            voice_client = await channel.connect(
             reconnect=False,
