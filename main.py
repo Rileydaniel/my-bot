@@ -1,4 +1,4 @@
-rint("🚀 MAIN.PY STARTED", flush=True)
+print("🚀 MAIN.PY STARTED", flush=True)
 import discord
 try:
     import discord.ext.voice_recv as voice_recv
@@ -606,7 +606,7 @@ async def reconnect_voice_channel():
                     await py_asyncio.sleep(1.5)
 
             try:
-        voice_client = await channel.connect(reconnect=False, timeout=30)
+                voice_client = await channel.connect(reconnect=False, timeout=30)
         
         # Wait a moment for the voice connection to stabilize before returning
         await py_asyncio.sleep(1)
