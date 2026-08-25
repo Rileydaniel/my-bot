@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.client import asyncio
 from discord.ext import commands
 import os
+import edge_tts
 print("Cookie exists:", os.path.exists("cookies.txt"))
 from flask import Flask
 import threading
@@ -485,12 +486,57 @@ class aclient(discord.Client):
 
         # Announce users joining/leaving/moving voice channels
         if self.user is not None and member.id != self.user.id:
+            vc = discord.utils.get(
+                self.voice_clients,
+                guild=member.guild
+            )
+
+            async def speak_announcement(message):
+                if not vc or not vc.is_connected():
+                    return
+
+                filename = "voice_announcement.mp3"
+
+                try:
+                    tts = edge_tts.Communicate(
+                        message,
+                        "en-US-GuyNeural"
+                    )
+                    await tts.save(filename)
+
+                    if vc.is_playing():
+                        vc.stop()
+
+                    vc.play(
+                        discord.FFmpegPCMAudio(filename),
+                        after=lambda e: (
+                            os.remove(filename)
+                            if os.path.exists(filename)
+                            else None
+                        )
+                    )
+                except Exception as e:
+                    print(f"❌ TTS error: {e}")
+
             if before.channel is None and after.channel is not None:
-                pass
+                await speak_announcement(
+                    f"{member.display_name} has joined {after.channel.name}"
+                )
+
             elif before.channel is not None and after.channel is None:
-                pass
-            elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
-                pass
+                await speak_announcement(
+                    f"{member.display_name} has left {before.channel.name}"
+                )
+
+            elif (
+                before.channel is not None
+                and after.channel is not None
+                and before.channel.id != after.channel.id
+            ):
+                await speak_announcement(
+                    f"{member.display_name} moved from {before.channel.name} to {after.channel.name}"
+                )
+
             return
 
         # Only watch the bot itself below
