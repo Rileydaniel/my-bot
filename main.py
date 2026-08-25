@@ -1,4 +1,5 @@
 TTS_VOICE = "en-US-GuyNeural"
+TTS_LOCK = py_asyncio.Lock()
 
 print("🚀 MAIN.PY STARTED", flush=True)
 import discord
@@ -511,18 +512,29 @@ class aclient(discord.Client):
                     await tts.save(filename)
                     print("✅ TTS audio created", flush=True)
 
-                    if vc.is_playing():
-                        vc.stop()
+                    async with TTS_LOCK:
+                        if vc.is_playing():
+                            print("⚠️ Waiting for current audio to stop", flush=True)
+                            vc.stop()
+                            await py_asyncio.sleep(0.5)
 
-                    print("▶️ Playing TTS audio", flush=True)
-                    vc.play(
-                        discord.FFmpegPCMAudio(filename),
-                        after=lambda e: (
-                            os.remove(filename)
-                            if os.path.exists(filename)
-                            else None
+                        print("▶️ Playing TTS audio", flush=True)
+
+                        finished = py_asyncio.Event()
+
+                        def after_play(error):
+                            if error:
+                                print(f"❌ FFmpeg playback error: {error}", flush=True)
+                            if os.path.exists(filename):
+                                os.remove(filename)
+                            client.loop.call_soon_threadsafe(finished.set)
+
+                        vc.play(
+                            discord.FFmpegPCMAudio(filename),
+                            after=after_play
                         )
-                    )
+
+                        await finished.wait()
                 except Exception as e:
                     print(f"❌ TTS error: {e}")
 
