@@ -605,7 +605,7 @@ async def reconnect_voice_channel():
                         pass
                     await py_asyncio.sleep(1.5)
 
-            try:
+     try:
         voice_client = await channel.connect(reconnect=False, timeout=30)
         
         # Wait a moment for the voice connection to stabilize before returning
