@@ -660,6 +660,7 @@ async def voice_watchdog():
 
 
 async def connect_to_voice():
+    print("🔊 connect_to_voice() called!", flush=True)
     global LAST_VC_CHANNEL_ID
     """
     Connect the bot to the configured voice channel.
