@@ -3,3 +3,4 @@ PyNaCl
 yt-dlp
 python-dotenv
 aiohttp
+flask
