@@ -128,9 +128,8 @@ class aclient(discord.Client):
             self._voice_watchdog_task is None
             or self._voice_watchdog_task.done()
         ):
-            self._voice_watchdog_task = py_asyncio.create_task(
-                voice_watchdog()
-            )
+            self._voice_watchdog_task = None
+            # watchdog disabled: it can fight music playback
 
 
     async def on_message_delete(self, message: discord.Message):
@@ -567,125 +566,13 @@ async def speak(
 # ----------------- Voice Reconnect Protection -----------------
 
 async def reconnect_voice_channel():
-    """Restore voice after an unexpected disconnect with bounded retries."""
-    retry_delays = (2, 5, 10, 20, 30)
-
-    try:
-        for attempt, delay in enumerate(retry_delays, start=1):
-            await py_asyncio.sleep(delay)
-
-            channel = client.get_channel(VOICE_CHANNEL_ID)
-            if not isinstance(
-                channel,
-                (discord.VoiceChannel, discord.StageChannel)
-            ):
-                print("❌ Reconnect stopped: voice channel is unavailable.")
-                return
-
-            current = discord.utils.get(
-                client.voice_clients,
-                guild=channel.guild
-            )
-            if (
-                current
-                and current.is_connected()
-                and current.channel is not None
-                and current.channel.id == channel.id
-            ):
-                print(f"🔊 Voice connection restored to {channel.name}.")
-                return
-
-            # A forced disconnect can leave a non-connected VoiceClient in
-            # the cache. Remove it before creating a fresh handshake.
-            for voice_client in list(client.voice_clients):
-                if voice_client.guild.id == channel.guild.id:
-                    try:
-                        if voice_client and voice_client.is_connected():
-                            await voice_client.disconnect(force=True)
-                    except Exception:
-                        pass
-                    await py_asyncio.sleep(1.5)
-
-            try:
-                voice_client = await channel.connect(
-                    reconnect=True,
-                    timeout=30
-                )
-
-                # Wait a moment for the voice connection to stabilize before returning
-                await py_asyncio.sleep(1)
-
-                print(
-                    f"🔊 Reconnected to {channel.name} "
-                    f"(attempt {attempt})."
-                )
-                return
-            except Exception as e:
-                print(
-                    f"⚠️ Voice reconnect attempt {attempt}/"
-                    f"{len(retry_delays)} failed: {e}"
-                )
-
-        print("❌ Voice reconnect stopped after 5 attempts.")
-    finally:
-        if client._voice_reconnect_task is not None:
-            client._voice_reconnect_task = None
+    """Disabled automatic reconnect. Manual voice connection is safer for music playback."""
+    return
 
 
 async def voice_watchdog():
-    """Keep the bot in the configured voice channel if events are missed."""
-    while not client.is_closed():
-        await py_asyncio.sleep(5)
-
-        channel = client.get_channel(VOICE_CHANNEL_ID)
-        if not isinstance(
-            channel,
-            (discord.VoiceChannel, discord.StageChannel)
-        ):
-            continue
-
-        current = discord.utils.get(
-            client.voice_clients,
-            guild=channel.guild
-        )
-        in_target = (
-            current is not None
-            and current.is_connected()
-            and current.channel is not None
-            and current.channel.id == channel.id
-        )
-
-        # Do not fight the music player while the bot has an active
-        # voice connection. Discord voice can briefly report a stale state
-        # during handshakes, and reconnecting here can kill playback.
-        active_voice = discord.utils.get(
-            client.voice_clients,
-            guild=channel.guild
-        )
-
-        if in_target or (
-            active_voice is not None
-            and active_voice.is_connected()
-            and active_voice.is_playing()
-        ):
-            continue
-
-        # Avoid watchdog reconnects while the voice connection is still alive.
-        # Reconnecting here can interrupt FFmpeg and leave silent playback.
-        if active_voice is not None and active_voice.is_connected():
-            continue
-
-        print(
-            "⚠️ Voice watchdog detected the bot is not in the "
-            f"configured channel ({channel.name})."
-        )
-        if (
-            client._voice_reconnect_task is None
-            or client._voice_reconnect_task.done()
-        ):
-            client._voice_reconnect_task = py_asyncio.create_task(
-                reconnect_voice_channel()
-            )
+    """Disabled. Automatic reconnects caused voice 4006/audio conflicts."""
+    return
 
 
 async def connect_to_voice():
@@ -755,7 +642,7 @@ async def connect_to_voice():
 
     # No current connection, so connect
     try:
-        voice_client = await channel.connect(reconnect=True, timeout=30)
+        voice_client = await channel.connect(timeout=30)
         
         # Wait a moment for the voice connection to stabilize before returning
         await py_asyncio.sleep(1)
