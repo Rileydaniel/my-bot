@@ -128,8 +128,9 @@ class aclient(discord.Client):
             self._voice_watchdog_task is None
             or self._voice_watchdog_task.done()
         ):
-            self._voice_watchdog_task = None
-            # watchdog disabled: it can fight music playback
+            self._voice_watchdog_task = py_asyncio.create_task(
+                voice_watchdog()
+            )
 
 
     async def on_message_delete(self, message: discord.Message):
@@ -513,9 +514,13 @@ class aclient(discord.Client):
                 'Returning to configured channel...'
             )
 
-        # Automatic voice reconnect disabled.
-        # Music playback should own the voice connection.
-        return
+        if (
+            self._voice_reconnect_task is None
+            or self._voice_reconnect_task.done()
+        ):
+            self._voice_reconnect_task = py_asyncio.create_task(
+                reconnect_voice_channel()
+            )
 
 
 client = aclient()
@@ -562,13 +567,103 @@ async def speak(
 # ----------------- Voice Reconnect Protection -----------------
 
 async def reconnect_voice_channel():
-    """Disabled automatic reconnect. Manual voice connection is safer for music playback."""
-    return
+    """Restore voice after an unexpected disconnect with bounded retries."""
+    retry_delays = (2, 5, 10, 20, 30)
+
+    try:
+        for attempt, delay in enumerate(retry_delays, start=1):
+            await py_asyncio.sleep(delay)
+
+            channel = client.get_channel(VOICE_CHANNEL_ID)
+            if not isinstance(
+                channel,
+                (discord.VoiceChannel, discord.StageChannel)
+            ):
+                print("❌ Reconnect stopped: voice channel is unavailable.")
+                return
+
+            current = discord.utils.get(
+                client.voice_clients,
+                guild=channel.guild
+            )
+            if (
+                current
+                and current.is_connected()
+                and current.channel is not None
+                and current.channel.id == channel.id
+            ):
+                print(f"🔊 Voice connection restored to {channel.name}.")
+                return
+
+            # A forced disconnect can leave a non-connected VoiceClient in
+            # the cache. Remove it before creating a fresh handshake.
+            for voice_client in list(client.voice_clients):
+                if voice_client.guild.id == channel.guild.id:
+                    try:
+                        await voice_client.disconnect(force=True)
+                    except Exception:
+                        pass
+                    await py_asyncio.sleep(1.5)
+
+            try:
+        voice_client = await channel.connect(reconnect=False, timeout=30)
+        
+        # Wait a moment for the voice connection to stabilize before returning
+        await py_asyncio.sleep(1)
+                print(
+                    f"🔊 Reconnected to {channel.name} "
+                    f"(attempt {attempt})."
+                )
+                return
+            except Exception as e:
+                print(
+                    f"⚠️ Voice reconnect attempt {attempt}/"
+                    f"{len(retry_delays)} failed: {e}"
+                )
+
+        print("❌ Voice reconnect stopped after 5 attempts.")
+    finally:
+        if client._voice_reconnect_task is not None:
+            client._voice_reconnect_task = None
 
 
 async def voice_watchdog():
-    """Disabled. Automatic reconnects caused voice 4006/audio conflicts."""
-    return
+    """Keep the bot in the configured voice channel if events are missed."""
+    while not client.is_closed():
+        await py_asyncio.sleep(5)
+
+        channel = client.get_channel(VOICE_CHANNEL_ID)
+        if not isinstance(
+            channel,
+            (discord.VoiceChannel, discord.StageChannel)
+        ):
+            continue
+
+        current = discord.utils.get(
+            client.voice_clients,
+            guild=channel.guild
+        )
+        in_target = (
+            current is not None
+            and current.is_connected()
+            and current.channel is not None
+            and current.channel.id == channel.id
+        )
+
+        if in_target:
+            continue
+
+        print(
+            "⚠️ Voice watchdog detected the bot is not in the "
+            f"configured channel ({channel.name})."
+        )
+        if (
+            client._voice_reconnect_task is None
+            or client._voice_reconnect_task.done()
+        ):
+            client._voice_reconnect_task = py_asyncio.create_task(
+                reconnect_voice_channel()
+            )
 
 
 async def connect_to_voice():
@@ -629,16 +724,15 @@ async def connect_to_voice():
                     f"⚠️ Failed to move bot to VC; "
                     f"starting a fresh connection: {e}"
                 )
-        if voice_client:
+        else:
             try:
                 await voice_client.disconnect(force=True)
-                await py_asyncio.sleep(1)
             except Exception:
                 pass
 
     # No current connection, so connect
     try:
-        voice_client = await channel.connect(timeout=30)
+        voice_client = await channel.connect(reconnect=False, timeout=30)
         
         # Wait a moment for the voice connection to stabilize before returning
         await py_asyncio.sleep(1)
@@ -2669,211 +2763,61 @@ class TicketGroup(app_commands.Group):
 ticket_group = TicketGroup()
 tree.add_command(ticket_group)
 
-# ----------------- Music System -----------------
+# ----------------- Music System (clean version) -----------------
 
 music_queues = {}
-music_now_playing = {}
 
-async def _youtube_search(query: str):
-    """Async wrapper used by /play."""
-    return await py_asyncio.to_thread(youtube_search, query)
-
-
-
-# Volume choices for /play. Discord supports up to 25 choices, so use 5% steps.
 PLAY_VOLUME_CHOICES = [
-    app_commands.Choice(name=f"{volume}%", value=volume)
-    for volume in range(100, -1, -5)
+    app_commands.Choice(name=f"{v}%", value=v)
+    for v in range(100, -1, -5)
 ]
 
+async def _youtube_search(query: str):
+    return await py_asyncio.to_thread(youtube_search, query)
 
 def youtube_search(query: str):
-    """Find the first YouTube result for a song query."""
-
-    ydl_opts = {
+    opts = {
         "format": "bestaudio/best",
-        "ignore_no_formats_error": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android"]
-            }
-        },
         "quiet": True,
-        "no_warnings": True,
         "noplaylist": True,
-        "outtmpl": str(Path(temp_dir) / "audio.%(ext)s"),
-        "cookiefile": "cookies.txt",
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "web"]
-            }
-        }
     }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        data = ydl.extract_info(f"ytsearch1:{query}", download=False)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch:{query}", download=False)
-
-    if "entries" in info:
-        info = info["entries"][0]
+    if data.get("entries"):
+        data = data["entries"][0]
 
     return {
-        "title": info.get("title"),
-        "url": info.get("webpage_url"),
-        "thumbnail": info.get("thumbnail")
+        "title": data.get("title", query),
+        "url": data.get("url"),
+        "webpage_url": data.get("webpage_url") or data.get("original_url") or "",
     }
 
-    entries = result.get("entries", []) if result else []
-    if not entries:
-        return None
-
-    entry = entries[0]
-
-    return {
-        "title": entry.get("title") or query,
-        "webpage_url": entry.get("webpage_url")
-        or entry.get("url")
-        or "",
-    }
-
-
-def _download_audio(webpage_url: str):
-    """Download the audio stream locally so FFmpeg does not have to stream from YouTube."""
-    temp_dir = tempfile.mkdtemp(prefix="discord_music_")
-
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "ignore_no_formats_error": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android"]
-            }
-        },
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "outtmpl": str(Path(temp_dir) / "audio.%(ext)s"),
-        "cookiefile": "cookies.txt",
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(webpage_url, download=True)
-        downloaded_path = Path(ydl.prepare_filename(info))
-
-    return str(downloaded_path), info.get("title") or "Unknown song", temp_dir
-
-
-async def _start_next_song(guild_id: int):
-    """Start the next queued song for a guild using the volume chosen when queued."""
-    queue = music_queues.get(guild_id, [])
-    voice_client = discord.utils.get(client.voice_clients, guild__id=guild_id)
-
-    if voice_client is None or not voice_client.is_connected():
+async def _play_next(guild_id):
+    vc = discord.utils.get(client.voice_clients, guild__id=guild_id)
+    if not vc or not vc.is_connected():
         return
 
+    queue = music_queues.get(guild_id, [])
     if not queue:
-        music_now_playing.pop(guild_id, None)
         return
 
     song = queue.pop(0)
     music_queues[guild_id] = queue
 
-    temp_dir = None
+    audio = discord.FFmpegPCMAudio(
+        song["url"],
+        executable="ffmpeg",
+        options="-vn"
+    )
 
-    try:
-        audio_path, title, temp_dir = await py_asyncio.to_thread(
-            _download_audio,
-            song["webpage_url"]
-        )
+    def done(error):
+        if error:
+            print(f"Music error: {error}")
+        py_asyncio.run_coroutine_threadsafe(_play_next(guild_id), client.loop)
 
-        # Make sure FFmpeg exists before trying to start playback.
-        ffmpeg_path = shutil.which("ffmpeg")
-        if not ffmpeg_path:
-            raise RuntimeError(
-                "FFmpeg is not installed or is not in PATH on the host."
-            )
-
-        # First convert the downloaded audio to an Opus OGG file with the
-        # selected volume. This FFmpeg process does the filtering and encoding.
-        # The Discord playback process then only stream-copies the already-Opus
-        # audio, so it NEVER combines a volume filter with codec=copy.
-        volume_percent = max(0, min(100, int(song.get("volume", 100))))
-        volume_level = volume_percent / 100.0
-        filtered_path = str(Path(temp_dir) / "discord_volume.ogg")
-
-        ffmpeg_cmd = [
-            ffmpeg_path,
-            "-y",
-            "-i", audio_path,
-            "-vn",
-            "-af", f"volume={volume_level:.2f}",
-            "-c:a", "libopus",
-            "-b:a", "128k",
-            "-f", "ogg",
-            filtered_path,
-        ]
-
-        process = await py_asyncio.create_subprocess_exec(
-            *ffmpeg_cmd,
-            stdout=py_asyncio.subprocess.DEVNULL,
-            stderr=py_asyncio.subprocess.PIPE,
-        )
-        _, ffmpeg_stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_text = ffmpeg_stderr.decode(errors="replace").strip()
-            raise RuntimeError(
-                f"FFmpeg volume conversion failed (code {process.returncode}): "
-                f"{error_text[-1000:]}"
-            )
-
-        # This input is already Opus and there is NO filter on this process.
-        # codec=copy is therefore safe here and avoids requiring libopus in
-        # discord.py itself.
-        audio = discord.FFmpegPCMAudio(
-            filtered_path,
-            executable=ffmpeg_path,
-            options="-vn -loglevel warning"
-        )
-
-        music_now_playing[guild_id] = title
-
-        def after_play(error):
-            if error:
-                print(f"❌ Music playback error: {error}")
-
-            # Remove the downloaded temporary audio after playback.
-            if temp_dir:
-                try:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                except Exception as cleanup_error:
-                    print(f"⚠️ Audio cleanup failed: {cleanup_error}")
-
-            future = py_asyncio.run_coroutine_threadsafe(
-                _start_next_song(guild_id),
-                client.loop
-            )
-
-            try:
-                future.result()
-            except Exception as e:
-                print(f"❌ Queue error: {e}")
-
-        print(f"🔊 Starting playback with audio: {filtered_path}", flush=True)
-        voice_client.play(audio, after=after_play)
-
-        print(f"🎵 Now playing: {title}")
-
-    except Exception as e:
-        print(
-            f"❌ Failed to play music: {type(e).__name__}: {e!r}"
-        )
-        music_now_playing.pop(guild_id, None)
-
-        if temp_dir:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-        await _start_next_song(guild_id)
-
+    vc.play(audio, after=done)
+    print(f"Playing: {song['title']}")
 
 def can_use_music_commands(member: discord.abc.User):
     return (
@@ -2941,7 +2885,7 @@ async def play(
         voice_client = interaction.guild.voice_client
 
         if voice_client is None:
-            voice_client = await target_channel.connect(timeout=30, reconnect=False)
+            voice_client = await target_channel.connect()
         elif voice_client.channel.id != target_channel.id:
             await voice_client.move_to(target_channel)
 
