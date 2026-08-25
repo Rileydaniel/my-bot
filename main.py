@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.client import asyncio
 from discord.ext import commands
 import os
+print("Cookie exists:", os.path.exists("cookies.txt"))
 from flask import Flask
 import threading
 import tempfile
