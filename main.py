@@ -598,18 +598,22 @@ async def reconnect_voice_channel():
             # A forced disconnect can leave a non-connected VoiceClient in
             # the cache. Remove it before creating a fresh handshake.
             for voice_client in list(client.voice_clients):
-         if voice_client.guild.id == channel.guild.id:
-        try:
-           voice_client = await channel.connect(
+                if voice_client.guild.id == channel.guild.id:
+            try:
+                await voice_client.disconnect(force=True)
+            except Exception:
+                pass
+
+    await py_asyncio.sleep(1.5)
+
+    try:
+        voice_client = await channel.connect(
             reconnect=False,
             timeout=30
         )
     except Exception as e:
         print(f"Voice connection failed: {e}")
-        return      
-
-            try:
-        voice_client = await channel.connect(reconnect=False, timeout=30)
+        return
         
         # Wait a moment for the voice connection to stabilize before returning
         await py_asyncio.sleep(1)
