@@ -606,14 +606,10 @@ async def reconnect_voice_channel():
                     await py_asyncio.sleep(1.5)
 
             try:
-                voice_client = await channel.connect(
-                    reconnect=False,
-                    timeout=30
-                )
-
-                # Wait a moment for the voice connection to stabilize before returning
-                await py_asyncio.sleep(1)
-
+        voice_client = await channel.connect(reconnect=False, timeout=30)
+        
+        # Wait a moment for the voice connection to stabilize before returning
+        await py_asyncio.sleep(1)
                 print(
                     f"🔊 Reconnected to {channel.name} "
                     f"(attempt {attempt})."
@@ -2784,6 +2780,8 @@ def youtube_search(query: str):
         "format": "bestaudio/best",
         "quiet": True,
         "noplaylist": True,
+        "extract_flat": False,
+        "nocheckcertificate": True,
         "remote_components": ["ejs:github"],
         "extractor_args": {
             "youtube": {
