@@ -1,6 +1,3 @@
-TTS_VOICE = "en-US-GuyNeural"
-TTS_LOCK = py_asyncio.Lock()
-
 print("🚀 MAIN.PY STARTED", flush=True)
 import discord
 try:
@@ -25,6 +22,9 @@ from datetime import timedelta
 from typing import Optional
 import asyncio as py_asyncio
 import time
+
+TTS_VOICE = "en-US-GuyNeural"
+TTS_LOCK = py_asyncio.Lock()
 
 temp_dir = tempfile.mkdtemp()
 
