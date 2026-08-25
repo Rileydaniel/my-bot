@@ -2927,10 +2927,9 @@ async def _start_next_song(guild_id: int):
         # This input is already Opus and there is NO filter on this process.
         # codec=copy is therefore safe here and avoids requiring libopus in
         # discord.py itself.
-        audio = discord.FFmpegOpusAudio(
+        audio = discord.FFmpegPCMAudio(
             filtered_path,
             executable=ffmpeg_path,
-            codec="copy",
             options="-vn -loglevel warning"
         )
 
