@@ -1,3 +1,5 @@
+TTS_VOICE = "en-US-GuyNeural"
+
 print("🚀 MAIN.PY STARTED", flush=True)
 import discord
 try:
@@ -504,7 +506,7 @@ class aclient(discord.Client):
                 try:
                     tts = edge_tts.Communicate(
                         message,
-                        "en-US-GuyNeural"
+                        TTS_VOICE
                     )
                     await tts.save(filename)
                     print("✅ TTS audio created", flush=True)
