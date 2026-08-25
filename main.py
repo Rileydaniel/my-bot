@@ -755,7 +755,7 @@ async def connect_to_voice():
 
     # No current connection, so connect
     try:
-        voice_client = await channel.connect(reconnect=False, timeout=30)
+        voice_client = await channel.connect(reconnect=True, timeout=30)
         
         # Wait a moment for the voice connection to stabilize before returning
         await py_asyncio.sleep(1)
