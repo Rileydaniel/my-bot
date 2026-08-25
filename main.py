@@ -2943,6 +2943,7 @@ async def _start_next_song(guild_id: int):
             except Exception as e:
                 print(f"❌ Queue error: {e}")
 
+        print(f"🔊 Starting playback with audio: {filtered_path}", flush=True)
         voice_client.play(audio, after=after_play)
 
         print(f"🎵 Now playing: {title}")
