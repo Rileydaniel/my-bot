@@ -1,3 +1,6 @@
+import shutil
+
+print("🔊 FFmpeg check:", shutil.which("ffmpeg"), flush=True)
 print("🚀 MAIN.PY STARTED", flush=True)
 import discord
 try:
