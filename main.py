@@ -2804,27 +2804,8 @@ def youtube_search(query: str):
         "webpage_url": data.get("webpage_url") or data.get("original_url") or "",
     }
 
-await _play_next(guild_id)
-    vc = discord.utils.get(client.voice_clients, guild__id=guild_id)
-    if not vc or not vc.is_connected():
-        return
 
-    queue = music_queues.get(guild_id, [])
-    if not queue:
-        return
-
-    song = queue.pop(0)
-    music_queues[guild_id] = queue
-
-    audio = discord.FFmpegPCMAudio(
-        song["url"],
-        executable="ffmpeg",
-        options="-vn"
-    )
-
-    def done(error):
-        if error:
-            print(f"Music error: {error}")
+  
         py_asyncio.run_coroutine_threadsafe(_play_next(guild_id), client.loop)
 
     vc.play(audio, after=done)
