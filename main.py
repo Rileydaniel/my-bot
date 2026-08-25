@@ -653,17 +653,21 @@ async def voice_watchdog():
             and current.channel is not None
             and current.channel.id == channel.id
         )
+if in_target:
+    continue
 
-        if in_target:
-            continue
+# Ignore while connecting/reconnecting
+if current and current.is_connected():
+    if current.channel is None:
+        continue
 
-        print(
-            "⚠️ Voice watchdog detected the bot is not in the "
-            f"configured channel ({channel.name})."
-        )
-        if (
-            client._voice_reconnect_task is None
-            or client._voice_reconnect_task.done()
+print(
+    f"⚠️ Voice watchdog detected the bot is not in "
+    f"{channel.name}"
+)
+if (
+    client._voice_reconnect_task is None
+         or client._voice_reconnect_task.done()
         ):
             client._voice_reconnect_task = py_asyncio.create_task(
                 reconnect_voice_channel()
