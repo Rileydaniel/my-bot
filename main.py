@@ -2999,12 +2999,14 @@ async def play(
         )
 
     if interaction.user.voice is None or interaction.user.voice.channel is None:
-        return await interaction.response.send_message(
-            "❌ Join a voice channel first.",
-            ephemeral=True
-        )
-
-    target_channel = interaction.user.voice.channel
+        target_channel = client.get_channel(VOICE_CHANNEL_ID)
+        if target_channel is None:
+            return await interaction.response.send_message(
+                "❌ Join a voice channel or set VOICE_CHANNEL_ID.",
+                ephemeral=True
+            )
+    else:
+        target_channel = interaction.user.voice.channel
     permissions = target_channel.permissions_for(interaction.guild.me)
 
     if not permissions.connect or not permissions.speak:
