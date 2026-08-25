@@ -1,6 +1,6 @@
-discord.py[voice]>=2.4.0
-yt-dlp>=2025.01.01
-python-dotenv
-flask
-aiohttp
+discord.py[voice]
 PyNaCl
+yt-dlp>=2025.01.01
+flask
+python-dotenv
+aiohttp
