@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install -U yt-dlp[default]
+RUN pip install -U yt-dlp
 
 RUN apt-get update && apt-get install -y \
     ffmpeg \
@@ -13,7 +13,6 @@ RUN apt-get update && apt-get install -y \
     libopus-dev \
     nodejs \
     npm \
-    && npm install -g @distube/ytdl-core \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
