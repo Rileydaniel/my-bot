@@ -1,6 +1,3 @@
-import shutil
-
-print("🔊 FFmpeg check:", shutil.which("ffmpeg"), flush=True)
 print("🚀 MAIN.PY STARTED", flush=True)
 import discord
 try:
@@ -19,6 +16,8 @@ from pathlib import Path
 import json
 import re
 import random
+import yt_dlp
+from collections import defaultdict
 from datetime import timedelta
 from typing import Optional
 import asyncio as py_asyncio
@@ -3287,11 +3286,113 @@ async def stop(interaction: discord.Interaction):
         ephemeral=True
     )
 
+
+# ----------------- Music System -----------------
+
+MUSIC_CHANNEL_ID = 1534790002079432725
+music_queues = defaultdict(list)
+
+
+def user_in_music_channel(interaction):
+    return (
+        interaction.user.voice is not None
+        and interaction.user.voice.channel.id == MUSIC_CHANNEL_ID
+    )
+
+
+async def play_next(guild):
+    queue = music_queues[guild.id]
+    vc = guild.voice_client
+
+    if not queue or not vc:
+        return
+
+    url, title = queue.pop(0)
+
+    source = await discord.FFmpegOpusAudio.from_probe(
+        url,
+        executable="ffmpeg"
+    )
+
+    def finished(error):
+        if error:
+            print(error)
+        asyncio.run_coroutine_threadsafe(play_next(guild), client.loop)
+
+    vc.play(source, after=finished)
+
+
+@tree.command(name="play", description="Queue a song")
+async def play_music(interaction: discord.Interaction, song: str):
+    if not user_in_music_channel(interaction):
+        await interaction.response.send_message(
+            "❌ You must be in the music VC.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+
+    vc = interaction.guild.voice_client
+    if vc is None:
+        vc = await interaction.user.voice.channel.connect()
+
+    opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "noplaylist": True,
+        "default_search": "ytsearch"
+    }
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(song, download=False)
+        if "entries" in info:
+            info = info["entries"][0]
+
+    music_queues[interaction.guild.id].append(
+        (info["url"], info.get("title", song))
+    )
+
+    if not vc.is_playing():
+        await play_next(interaction.guild)
+
+    await interaction.followup.send(
+        f"🎵 Queued: {info.get('title', song)}"
+    )
+
+
+@tree.command(name="stopmusic", description="Stop music and clear queue")
+async def stop_music(interaction: discord.Interaction):
+    if not user_in_music_channel(interaction):
+        await interaction.response.send_message("❌ You must be in the music VC.", ephemeral=True)
+        return
+
+    vc = interaction.guild.voice_client
+    music_queues[interaction.guild.id].clear()
+
+    if vc and vc.is_playing():
+        vc.stop()
+
+    await interaction.response.send_message("🛑 Music stopped.")
+
+
+@tree.command(name="resume", description="Resume music")
+async def resume_music(interaction: discord.Interaction):
+    if not user_in_music_channel(interaction):
+        await interaction.response.send_message("❌ You must be in the music VC.", ephemeral=True)
+        return
+
+    vc = interaction.guild.voice_client
+    if vc and vc.is_paused():
+        vc.resume()
+        await interaction.response.send_message("▶️ Resumed.")
+    else:
+        await interaction.response.send_message("❌ Nothing is paused.")
+
+
 # ----------------- Start Bot -----------------
 
-if __name__ == "__main__":
-
-    import time
+if __name__ == '__main__':
 
     flask_thread = threading.Thread(
         target=run_flask_server,
@@ -3299,13 +3400,4 @@ if __name__ == "__main__":
     )
 
     flask_thread.start()
-
-    print("Waiting before Discord login...")
-    time.sleep(10)
-
-    token = os.getenv("DISCORD_TOKEN")
-
-    if not token:
-        print("ERROR: DISCORD_TOKEN missing")
-    else:
-        client.run(token)
+    client.run(os.getenv("DISCORD_TOKEN"))
