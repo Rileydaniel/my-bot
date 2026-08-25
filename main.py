@@ -118,7 +118,11 @@ class aclient(discord.Client):
         await self.change_presence(activity=activity)
 
         # Automatically join VC when bot comes online
-        await connect_to_voice()
+        await py_asyncio.sleep(2)
+        try:
+            await connect_to_voice()
+        except Exception as e:
+            print(f"❌ Initial voice connection failed: {e}", flush=True)
 
         if (
             self._voice_watchdog_task is None
@@ -602,7 +606,10 @@ async def reconnect_voice_channel():
                     await py_asyncio.sleep(1.5)
 
             try:
-                await channel.connect(reconnect=False, timeout=30)
+        voice_client = await channel.connect(reconnect=False, timeout=30)
+        
+        # Wait a moment for the voice connection to stabilize before returning
+        await py_asyncio.sleep(1)
                 print(
                     f"🔊 Reconnected to {channel.name} "
                     f"(attempt {attempt})."
@@ -725,7 +732,10 @@ async def connect_to_voice():
 
     # No current connection, so connect
     try:
-        await channel.connect(reconnect=False, timeout=30)
+        voice_client = await channel.connect(reconnect=False, timeout=30)
+        
+        # Wait a moment for the voice connection to stabilize before returning
+        await py_asyncio.sleep(1)
 
         print(
             f"🔊 Bot joined voice channel: "
