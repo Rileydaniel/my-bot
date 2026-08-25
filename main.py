@@ -654,7 +654,19 @@ async def voice_watchdog():
             and current.channel.id == channel.id
         )
 
-        if in_target:
+        # Do not fight the music player while the bot has an active
+        # voice connection. Discord voice can briefly report a stale state
+        # during handshakes, and reconnecting here can kill playback.
+        active_voice = discord.utils.get(
+            client.voice_clients,
+            guild=channel.guild
+        )
+
+        if in_target or (
+            active_voice is not None
+            and active_voice.is_connected()
+            and active_voice.is_playing()
+        ):
             continue
 
         print(
