@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y \
     libopus0 \
     libopus-dev \
     nodejs \
-    npm
+    npm \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
