@@ -2788,7 +2788,7 @@ def youtube_search(query: str):
 
     "extractor_args": {
         "youtube": {
-            "player_client": ["web"]
+            "player_client": ["android", "web"]
         }
     }
 }
