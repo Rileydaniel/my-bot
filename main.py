@@ -600,6 +600,7 @@ async def reconnect_voice_channel():
             for voice_client in list(client.voice_clients):
                 if voice_client.guild.id == channel.guild.id:
                     try:
+                        if voice_client and voice_client.is_connected():
                         await voice_client.disconnect(force=True)
                     except Exception:
                         pass
@@ -607,7 +608,7 @@ async def reconnect_voice_channel():
 
             try:
                 voice_client = await channel.connect(
-                    reconnect=False,
+                    reconnect=True,
                     timeout=30
                 )
 
@@ -747,7 +748,8 @@ async def connect_to_voice():
                 )
         else:
             try:
-                await voice_client.disconnect(force=True)
+                if voice_client and voice_client.is_connected():
+                        await voice_client.disconnect(force=True)
             except Exception:
                 pass
 
