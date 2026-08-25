@@ -3660,4 +3660,4 @@ if __name__ == '__main__':
     )
 
     flask_thread.start()
-    client.run(os.getenv("TOKEN"))
+    client.run(os.getenv("DISCORD_TOKEN"))
