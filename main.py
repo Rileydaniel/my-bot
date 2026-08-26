@@ -529,8 +529,8 @@ class aclient(discord.Client):
                     audio = discord.FFmpegPCMAudio(
                         filename,
                         executable="ffmpeg",
-                        before_options="-nostdin",
-                        options="-vn -loglevel warning"
+                        before_options="-hide_banner -loglevel error -nostdin",
+                        options="-vn -ar 48000 -ac 2"
                     )
 
                     vc.play(audio, after=finished)
