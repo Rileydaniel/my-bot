@@ -504,13 +504,15 @@ class aclient(discord.Client):
                     )
                     await tts.save(filename)
 
-                    def finished(error):
-                        if error:
-                            print(f"❌ FFmpeg TTS error: {error}")
-                        else:
-                            print("✅ TTS finished")
+                    print(f"TTS FILE: {filename} {os.path.getsize(filename)} bytes", flush=True)
 
-                        # Give FFmpeg time to fully close before deleting the file
+                    def finished(error):
+                        # Discord/FFmpeg can report -9 during normal cleanup
+                        if error and "return code of -9" not in str(error):
+                            print(f"❌ Real FFmpeg TTS error: {error}")
+                        else:
+                            print("✅ TTS finished", flush=True)
+
                         def cleanup():
                             try:
                                 if os.path.exists(filename):
@@ -518,7 +520,7 @@ class aclient(discord.Client):
                             except Exception:
                                 pass
 
-                        threading.Timer(2.0, cleanup).start()
+                        threading.Timer(3.0, cleanup).start()
 
                     if vc.is_playing():
                         print("⚠️ TTS already playing, skipping announcement", flush=True)
