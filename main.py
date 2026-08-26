@@ -509,11 +509,16 @@ class aclient(discord.Client):
                             print(f"❌ FFmpeg TTS error: {error}")
                         else:
                             print("✅ TTS finished")
-                        if os.path.exists(filename):
+
+                        # Give FFmpeg time to fully close before deleting the file
+                        def cleanup():
                             try:
-                                os.remove(filename)
+                                if os.path.exists(filename):
+                                    os.remove(filename)
                             except Exception:
                                 pass
+
+                        threading.Timer(2.0, cleanup).start()
 
                     if vc.is_playing():
                         print("⚠️ TTS already playing, skipping announcement", flush=True)
@@ -524,14 +529,11 @@ class aclient(discord.Client):
                     audio = discord.FFmpegPCMAudio(
                         filename,
                         executable="ffmpeg",
-                        before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                        options="-vn"
+                        before_options="-nostdin",
+                        options="-vn -loglevel warning"
                     )
 
-                    vc.play(
-                        audio,
-                        after=finished
-                    )
+                    vc.play(audio, after=finished)
                 except Exception as e:
                     print(f"❌ TTS error: {e}")
 
