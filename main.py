@@ -528,14 +528,22 @@ class aclient(discord.Client):
 
                     print("▶️ Playing TTS audio", flush=True)
 
+                    print(f"🎧 FFmpeg loading: {filename}", flush=True)
+
                     audio = discord.FFmpegPCMAudio(
                         filename,
                         executable="ffmpeg",
-                        before_options="-hide_banner -loglevel error -nostdin",
-                        options="-vn -ar 48000 -ac 2"
+                        before_options="-nostdin",
+                        options="-vn"
                     )
 
-                    vc.play(audio, after=finished)
+                    def done(error):
+                        if error:
+                            print(f"❌ FFmpeg playback error: {error}", flush=True)
+                        else:
+                            print("✅ TTS playback finished", flush=True)
+
+                    vc.play(audio, after=done)
                 except Exception as e:
                     print(f"❌ TTS error: {e}")
 
@@ -3357,3 +3365,4 @@ if __name__ == '__main__':
 
     flask_thread.start()
     client.run(os.getenv("DISCORD_TOKEN"))
+    
