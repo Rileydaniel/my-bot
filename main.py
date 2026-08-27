@@ -8,8 +8,6 @@ from discord import app_commands
 from discord.client import asyncio
 from discord.ext import commands
 import os
-import edge_tts
-print("Cookie exists:", os.path.exists("cookies.txt"))
 from flask import Flask
 import threading
 import tempfile
@@ -21,7 +19,13 @@ import random
 from datetime import timedelta
 from typing import Optional
 import asyncio as py_asyncio
+import yt_dlp
+import edge_tts
 import time
+
+TTS_VOICE = "en-US-LilyNeural"
+TTS_LOCK = py_asyncio.Lock()
+VOICE_AUDIO_LOCK = py_asyncio.Lock()
 
 temp_dir = tempfile.mkdtemp()
 
@@ -40,6 +44,7 @@ WARNINGS_FILE = "warnings.json"
 LOG_CHANNEL_ID = 1540399902490763294
 STAFF_ROLE_ID = 1268998581000601651
 STAFF_PING_IMMUNE_ROLE_ID = 1268998581000601651
+MUSIC_COMMAND_ROLE_ID = 1311257043348492298
 PRIMARY_SERVER_ID = 1258549984325009468
 
 # Recent deleted message cache for moderation tools
@@ -51,9 +56,43 @@ last_speak_message = None
 last_speak_time = None
 
 # Replace this with your actual voice channel ID
-VOICE_CHANNEL_ID = 1534790002079432725
+VOICE_CHANNEL_ID = 1258549985503612967
 LAST_VC_CHANNEL_ID = VOICE_CHANNEL_ID
 # ------------------------------------------
+
+
+def clean_name_for_tts(name: str) -> str:
+    """Clean and normalize a username so edge_tts pronounces it clearly.
+
+    Removes special characters and numbers, replaces underscores with
+    spaces, and collapses extra whitespace. If the cleaned name ends up
+    too short/garbled relative to the original (i.e. the name was mostly
+    special characters), fall back to spelling the original name out
+    character-by-character so TTS still says something intelligible.
+    """
+    if not name:
+        return name
+
+    original = name
+
+    # Replace underscores/hyphens with spaces first so words don't get glued together.
+    spaced = re.sub(r"[_\-]+", " ", name)
+
+    # Remove anything that isn't a letter or whitespace (drops numbers and symbols/emojis).
+    cleaned = re.sub(r"[^A-Za-z\s]", "", spaced)
+
+    # Collapse repeated whitespace and trim.
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    # Count how many "meaningful" (letter) characters existed in the original name.
+    original_letters = re.sub(r"[^A-Za-z]", "", original)
+
+    # If cleaning stripped away most of the name (i.e. it was mostly special
+    # characters/numbers/emojis), spelling it out is clearer than a mangled result.
+    if not cleaned or len(cleaned) < max(1, len(original_letters) // 2):
+        return " ".join(list(original))
+
+    return cleaned
 
 
 class aclient(discord.Client):
@@ -118,11 +157,7 @@ class aclient(discord.Client):
         await self.change_presence(activity=activity)
 
         # Automatically join VC when bot comes online
-        await py_asyncio.sleep(2)
-        try:
-            await connect_to_voice()
-        except Exception as e:
-            print(f"❌ Initial voice connection failed: {e}", flush=True)
+        await connect_to_voice()
 
         if (
             self._voice_watchdog_task is None
@@ -268,7 +303,7 @@ class aclient(discord.Client):
                     await message.author.send(
                         f"You have been banned from **{message.guild.name}** "
                         "because you returned after a 3/3 warning kick and pinged staff again. "
-                        "You can appeal this with Military Noob."
+                        "You can appeal this with Ola."
                     )
                 except discord.HTTPException:
                     pass
@@ -348,7 +383,7 @@ class aclient(discord.Client):
                 warning_text = (
                     f"{message.author.mention} — You have been **banned** "
                     "because you returned after your 4/4 warning kick and "
-                    "committed another offense. You can appeal this with Military Noob."
+                    "committed another offense. You can appeal this with Ola."
                 )
 
                 try:
@@ -357,7 +392,7 @@ class aclient(discord.Client):
                             f"You have been banned from **{message.guild.name}** "
                             "because you returned after receiving 4/4 warnings "
                             "and then used a swear word at a staff member again. "
-                            "You can appeal this with Military Noob."
+                            "You can appeal this with Ola."
                         )
                     except discord.HTTPException:
                         pass
@@ -415,7 +450,7 @@ class aclient(discord.Client):
                     warning_text = (
                         f"{message.author.mention} — You have received "
                         "**warning 4/4** and have been kicked from the server. "
-                        "You can appeal this with Military Noob."
+                        "You can appeal this with Ola."
                     )
 
                     try:
@@ -423,7 +458,7 @@ class aclient(discord.Client):
                             await message.author.send(
                                 f"You have been kicked from **{message.guild.name}** "
                                 "after receiving 4/4 warnings for using swear words "
-                                "at a staff member. You can appeal this with Military Noob."
+                                "at a staff member. You can appeal this with Ola."
                             )
                         except discord.HTTPException:
                             pass
@@ -458,7 +493,7 @@ class aclient(discord.Client):
                         f"**{warning_number}/4** for using swear words at a staff member. "
                         f"**{remaining} more warning{'s' if remaining != 1 else ''}** "
                         "and you will be kicked from the server. "
-                        "You can appeal this with Military Noob."
+                        "You can appeal this with Ola."
                     )
 
                 await send_warning_log(
@@ -483,6 +518,7 @@ class aclient(discord.Client):
         after: discord.VoiceState
     ):
         print(f"🔊 VOICE EVENT: {member.display_name} | {before.channel} -> {after.channel}", flush=True)
+        print("🔊 TTS listener active", flush=True)
 
         # Announce users joining/leaving/moving voice channels
         if self.user is not None and member.id != self.user.id:
@@ -492,69 +528,67 @@ class aclient(discord.Client):
             )
 
             async def speak_announcement(message):
+                # Wait for Discord to fully sync the user state before speaking
+                await py_asyncio.sleep(1.5)
+
                 if not vc or not vc.is_connected():
+                    print("❌ NO VOICE CLIENT FOUND", flush=True)
                     return
 
-                filename = tempfile.mktemp(suffix=".mp3")
+                print(f"🗣️ TTS TRY: {message}", flush=True)
+
+                filename = "voice_announcement.mp3"
 
                 try:
                     tts = edge_tts.Communicate(
                         message,
-                        "en-US-GuyNeural"
+                        TTS_VOICE
                     )
                     await tts.save(filename)
+                    print("✅ TTS audio created", flush=True)
 
-                    print(f"TTS FILE: {filename} {os.path.getsize(filename)} bytes", flush=True)
+                    async with VOICE_AUDIO_LOCK:
+                        if vc.is_playing():
+                            print("⚠️ Waiting for current audio to stop", flush=True)
+                            vc.stop()
+                            await py_asyncio.sleep(0.5)
 
-                    def finished(error):
-                        # Discord/FFmpeg can report -9 during normal cleanup
-                        if error and "return code of -9" not in str(error):
-                            print(f"❌ Real FFmpeg TTS error: {error}")
-                        else:
-                            print("✅ TTS finished", flush=True)
+                        print("▶️ Playing TTS audio", flush=True)
 
-                        def cleanup():
-                            try:
-                                if os.path.exists(filename):
-                                    os.remove(filename)
-                            except Exception:
-                                pass
+                        finished = py_asyncio.Event()
 
-                        threading.Timer(3.0, cleanup).start()
+                        def after_play(error):
+                            if error:
+                                print(f"❌ FFmpeg playback error: {error}", flush=True)
+                            if os.path.exists(filename):
+                                os.remove(filename)
+                            client.loop.call_soon_threadsafe(finished.set)
 
-                    if vc.is_playing():
-                        print("⚠️ TTS already playing, skipping announcement", flush=True)
-                        return
+                        vc.play(
+                            discord.FFmpegPCMAudio(
+                                filename,
+                                before_options="-nostdin",
+                                options="-vn"
+                            ),
+                            after=after_play
+                        )
 
-                    print("▶️ Playing TTS audio", flush=True)
-
-                    print(f"🎧 FFmpeg loading: {filename}", flush=True)
-
-                    audio = discord.FFmpegPCMAudio(
-                        filename,
-                        executable="ffmpeg",
-                        before_options="-nostdin",
-                        options="-vn"
-                    )
-
-                    def done(error):
-                        if error:
-                            print(f"❌ FFmpeg playback error: {error}", flush=True)
-                        else:
-                            print("✅ TTS playback finished", flush=True)
-
-                    vc.play(audio, after=done)
+                        await finished.wait()
                 except Exception as e:
                     print(f"❌ TTS error: {e}")
 
+            # Use server nickname if available, fallback to display name
+            nickname = member.nick if member.nick else member.display_name
+            tts_name = clean_name_for_tts(nickname)
+
             if before.channel is None and after.channel is not None:
                 await speak_announcement(
-                    f"{member.display_name} has joined {after.channel.name}"
+                    f"{tts_name} has joined {after.channel.name}"
                 )
 
             elif before.channel is not None and after.channel is None:
                 await speak_announcement(
-                    f"{member.display_name} has left {before.channel.name}"
+                    f"{tts_name} has left {before.channel.name}"
                 )
 
             elif (
@@ -563,7 +597,7 @@ class aclient(discord.Client):
                 and before.channel.id != after.channel.id
             ):
                 await speak_announcement(
-                    f"{member.display_name} moved from {before.channel.name} to {after.channel.name}"
+                    f"{tts_name} moved from {before.channel.name} to {after.channel.name}"
                 )
 
             return
@@ -805,7 +839,7 @@ async def connect_to_voice():
     # No current connection, so connect
     try:
         voice_client = await channel.connect(reconnect=False, timeout=30)
-        
+
         # Wait a moment for the voice connection to stabilize before returning
         await py_asyncio.sleep(1)
 
@@ -953,7 +987,7 @@ async def slash2(
         await asyncio.sleep(3)
 
     await interaction.followup.send(
-        'My name Nick I need a dick exstender To fit in a woman pussy'
+        'Hello test I am working I am fully online'
     )
 
     embed = create_custom_embed(
@@ -2835,6 +2869,393 @@ class TicketGroup(app_commands.Group):
 ticket_group = TicketGroup()
 tree.add_command(ticket_group)
 
+# ----------------- Music System -----------------
+
+music_queues = {}
+music_now_playing = {}
+
+async def _youtube_search(query: str):
+    """Async wrapper used by /play."""
+    return await py_asyncio.to_thread(youtube_search, query)
+
+
+
+# Volume choices for /play. Discord supports up to 25 choices, so use 5% steps.
+PLAY_VOLUME_CHOICES = [
+    app_commands.Choice(name=f"{volume}%", value=volume)
+    for volume in range(100, -1, -5)
+]
+
+
+def youtube_search(query: str):
+    """Find the first YouTube result for a song query."""
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "ignore_no_formats_error": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"]
+            }
+        },
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "outtmpl": str(Path(temp_dir) / "audio.%(ext)s"),
+        "cookiefile": "cookies.txt",
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"]
+            }
+        }
+    }
+
+    # Allow /play song name as well as direct URLs
+    if not query.startswith("http"):
+        query = "ytsearch1:" + query
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(query, download=False)
+
+    if "entries" in info:
+        info = info["entries"][0]
+
+    return {
+        "title": info.get("title"),
+        "url": info.get("webpage_url") or info.get("original_url") or info.get("url"),
+        "thumbnail": info.get("thumbnail")
+    }
+
+    entries = result.get("entries", []) if result else []
+    if not entries:
+        return None
+
+    entry = entries[0]
+
+    return {
+        "title": entry.get("title") or query,
+        "webpage_url": entry.get("webpage_url")
+        or entry.get("original_url")
+        or entry.get("url")
+        or "",
+    }
+
+
+def _download_audio(webpage_url: str):
+    """Download the audio stream locally so FFmpeg does not have to stream from YouTube."""
+    temp_dir = tempfile.mkdtemp(prefix="discord_music_")
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "ignore_no_formats_error": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"]
+            }
+        },
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "outtmpl": str(Path(temp_dir) / "audio.%(ext)s"),
+        "cookiefile": "cookies.txt",
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(webpage_url, download=True)
+        downloaded_path = Path(ydl.prepare_filename(info))
+
+    return str(downloaded_path), info.get("title") or "Unknown song", temp_dir
+
+
+async def _start_next_song(guild_id: int):
+    """Start the next queued song for a guild using the volume chosen when queued."""
+    queue = music_queues.get(guild_id, [])
+    voice_client = discord.utils.get(client.voice_clients, guild__id=guild_id)
+
+    if voice_client is None or not voice_client.is_connected():
+        return
+
+    if not queue:
+        music_now_playing.pop(guild_id, None)
+        return
+
+    song = queue.pop(0)
+    music_queues[guild_id] = queue
+
+    temp_dir = None
+
+    try:
+        audio_path, title, temp_dir = await py_asyncio.to_thread(
+            _download_audio,
+            song.get("webpage_url") or song.get("url")
+        )
+
+        # Make sure FFmpeg exists before trying to start playback.
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError(
+                "FFmpeg is not installed or is not in PATH on the host."
+            )
+
+        # First convert the downloaded audio to an Opus OGG file with the
+        # selected volume. This FFmpeg process does the filtering and encoding.
+        # The Discord playback process then only stream-copies the already-Opus
+        # audio, so it NEVER combines a volume filter with codec=copy.
+        volume_percent = max(0, min(100, int(song.get("volume", 100))))
+        volume_level = volume_percent / 100.0
+        filtered_path = str(Path(temp_dir) / "discord_volume.ogg")
+
+        ffmpeg_cmd = [
+            ffmpeg_path,
+            "-y",
+            "-i", audio_path,
+            "-vn",
+            "-af", f"volume={volume_level:.2f}",
+            "-c:a", "libopus",
+            "-b:a", "128k",
+            "-f", "ogg",
+            filtered_path,
+        ]
+
+        process = await py_asyncio.create_subprocess_exec(
+            *ffmpeg_cmd,
+            stdout=py_asyncio.subprocess.DEVNULL,
+            stderr=py_asyncio.subprocess.PIPE,
+        )
+        _, ffmpeg_stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_text = ffmpeg_stderr.decode(errors="replace").strip()
+            raise RuntimeError(
+                f"FFmpeg volume conversion failed (code {process.returncode}): "
+                f"{error_text[-1000:]}"
+            )
+
+        # This input is already Opus and there is NO filter on this process.
+        # codec=copy is therefore safe here and avoids requiring libopus in
+        # discord.py itself.
+        audio = discord.FFmpegOpusAudio(
+            filtered_path,
+            executable=ffmpeg_path,
+            codec="copy",
+            options="-vn -loglevel warning"
+        )
+
+        music_now_playing[guild_id] = title
+
+        def after_play(error):
+            if error:
+                print(f"❌ Music playback error: {error}")
+
+            # Remove the downloaded temporary audio after playback.
+            if temp_dir:
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception as cleanup_error:
+                    print(f"⚠️ Audio cleanup failed: {cleanup_error}")
+
+            future = py_asyncio.run_coroutine_threadsafe(
+                _start_next_song(guild_id),
+                client.loop
+            )
+
+            try:
+                future.result()
+            except Exception as e:
+                print(f"❌ Queue error: {e}")
+
+        async with VOICE_AUDIO_LOCK:
+            if voice_client.is_playing():
+                voice_client.stop()
+                await py_asyncio.sleep(0.5)
+            voice_client.play(audio, after=after_play)
+
+        print(f"🎵 Now playing: {title}")
+
+    except Exception as e:
+        print(
+            f"❌ Failed to play music: {type(e).__name__}: {e!r}"
+        )
+        music_now_playing.pop(guild_id, None)
+
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        await _start_next_song(guild_id)
+
+
+def can_use_music_commands(member: discord.abc.User):
+    return (
+        isinstance(member, discord.Member)
+        and any(role.id == MUSIC_COMMAND_ROLE_ID for role in member.roles)
+    )
+
+
+@tree.command(
+    name="play",
+    description="Play a song by name and artist"
+)
+@app_commands.choices(volume=PLAY_VOLUME_CHOICES)
+@app_commands.describe(volume="Choose the music volume (0% = silent, 100% = normal)")
+async def play(
+    interaction: discord.Interaction,
+    song: str,
+    volume: app_commands.Choice[int] = None
+):
+    # Defer immediately so Discord does not timeout while loading/searching music
+    await interaction.response.defer(ephemeral=True)
+
+    if interaction.guild is None:
+        return await interaction.followup.send(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+
+    if not can_use_music_commands(interaction.user):
+        return await interaction.response.send_message(
+            "❌ You need the music role to use this command.",
+            ephemeral=True
+        )
+
+    if not isinstance(interaction.user, discord.Member):
+        return await interaction.response.send_message(
+            "❌ I could not find your server member information.",
+            ephemeral=True
+        )
+
+    if interaction.user.voice is None or interaction.user.voice.channel is None:
+        return await interaction.response.send_message(
+            "❌ Join a voice channel first.",
+            ephemeral=True
+        )
+
+    target_channel = interaction.user.voice.channel
+    permissions = target_channel.permissions_for(interaction.guild.me)
+
+    if not permissions.connect or not permissions.speak:
+        return await interaction.response.send_message(
+            "❌ I need **Connect** and **Speak** permission in that voice channel.",
+            ephemeral=True
+        )
+
+    try:
+        result = await _youtube_search(song)
+
+        if result is None:
+            return await interaction.followup.send(
+                f"❌ I couldn't find **{song}**.",
+                ephemeral=True
+            )
+
+        voice_client = interaction.guild.voice_client
+
+        if voice_client is None:
+            voice_client = await target_channel.connect()
+        elif voice_client.channel.id != target_channel.id:
+            await voice_client.move_to(target_channel)
+
+        guild_id = interaction.guild.id
+        selected_volume = volume.value if volume is not None else 100
+        result["volume"] = selected_volume
+        music_queues.setdefault(guild_id, []).append(result)
+
+        if voice_client.is_playing() or voice_client.is_paused():
+            await interaction.followup.send(
+                f"🎵 Added to queue: **{result['title']}** at **{selected_volume}% volume**",
+                ephemeral=True
+            )
+        else:
+            await _start_next_song(guild_id)
+            await interaction.followup.send(
+                f"▶️ Playing **{result['title']}** at **{selected_volume}% volume**",
+                ephemeral=True
+            )
+
+        global VOICE_CHANNEL_ID, LAST_VC_CHANNEL_ID
+        VOICE_CHANNEL_ID = target_channel.id
+        LAST_VC_CHANNEL_ID = target_channel.id
+
+    except Exception as e:
+        print(f"❌ /play failed: {e}")
+        await interaction.followup.send(
+            f"❌ Failed to play the song: {e}",
+            ephemeral=True
+        )
+
+
+@tree.command(
+    name="skip",
+    description="Skip the current song"
+)
+async def skip(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+
+    if not can_use_music_commands(interaction.user):
+        return await interaction.response.send_message(
+            "❌ You need the music role to use this command.",
+            ephemeral=True
+        )
+
+    voice_client = interaction.guild.voice_client
+
+    if voice_client is None or not voice_client.is_playing():
+        return await interaction.response.send_message(
+            "❌ Nothing is currently playing.",
+            ephemeral=True
+        )
+
+    voice_client.stop()
+
+    await interaction.response.send_message(
+        "⏭️ Skipped the current song.",
+        ephemeral=True
+    )
+
+
+@tree.command(
+    name="stop",
+    description="Stop music and clear the queue"
+)
+async def stop_music(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+
+    if not can_use_music_commands(interaction.user):
+        return await interaction.response.send_message(
+            "❌ You need the music role to use this command.",
+            ephemeral=True
+        )
+
+    guild_id = interaction.guild.id
+    music_queues[guild_id] = []
+
+    voice_client = interaction.guild.voice_client
+
+    if voice_client is not None and (
+        voice_client.is_playing() or voice_client.is_paused()
+    ):
+        voice_client.stop()
+
+    music_now_playing.pop(guild_id, None)
+
+    await interaction.response.send_message(
+        "⏹️ Music stopped and the queue was cleared.",
+        ephemeral=True
+    )
+
+
+
+
+
+
+
 # ----------------- Fun + Utility Commands -----------------
 
 @tree.command(name="ping", description="Shows bot latency and uptime")
@@ -3364,5 +3785,4 @@ if __name__ == '__main__':
     )
 
     flask_thread.start()
-    client.run(os.getenv("DISCORD_TOKEN"))
-    
+    client.run
